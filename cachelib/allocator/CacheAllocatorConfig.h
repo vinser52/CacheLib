@@ -94,6 +94,8 @@ class CacheAllocatorConfig {
   // Config for NvmCache. If enabled, cachelib will also make use of flash.
   CacheAllocatorConfig& enableNvmCache(NvmCacheConfig config);
 
+  bool isNvmCacheEnabled() const;
+
   // enable the reject first admission policy through its parameters
   // @param numEntries          the number of entries to track across all splits
   // @param numSplits           the number of splits. we drop a whole split by
@@ -686,6 +688,11 @@ CacheAllocatorConfig<T>& CacheAllocatorConfig<T>::enableNvmCache(
     NvmCacheConfig config) {
   nvmConfig.assign(config);
   return *this;
+}
+
+template <typename T>
+bool CacheAllocatorConfig<T>::isNvmCacheEnabled() const {
+  return nvmConfig.has_value();
 }
 
 template <typename T>
