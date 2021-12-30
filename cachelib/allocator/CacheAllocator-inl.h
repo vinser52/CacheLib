@@ -216,7 +216,7 @@ CacheAllocator<CacheTrait>::createNewMemoryAllocator(TierId tid) {
                       config_.getCacheSize(), config_.slabMemoryBaseAddr,
                       createShmCacheOpts(tid))
           .addr,
-      config_.getCacheSize());
+      memoryTierConfigs[tid].getSize());
 }
 
 template <typename CacheTrait>
@@ -227,7 +227,7 @@ CacheAllocator<CacheTrait>::restoreMemoryAllocator(TierId tid) {
       shmManager_
           ->attachShm(detail::kShmCacheName + std::to_string(tid),
             config_.slabMemoryBaseAddr, createShmCacheOpts(tid)).addr,
-      config_.getCacheSize(),
+      memoryTierConfigs[tid].getSize(),
       config_.disableFullCoredump);
 }
 
