@@ -197,7 +197,7 @@ void generateAndInsert(LruAllocatorConfig& cfg,
   using RemoveCbData = typename LruAllocator::RemoveCbData;
   size_t itemsInserted = 0, itemsFound = 0, itemsEvicted = 0, itemsEvictedAndFound = 0;
   std::set<std::string> movedKeys;
-  std::vector<RemoveCbData> removedData;
+  std::vector<std::string> removedData;
   std::unique_ptr<LruAllocator> alloc;
 
   auto moveCb = [&](const Item& oldItem, Item& newItem, Item*) {
@@ -207,7 +207,7 @@ void generateAndInsert(LruAllocatorConfig& cfg,
   };
 
   auto removeCb = [&](const RemoveCbData& data) {
-    removedData.push_back(data);
+    removedData.push_back(data.item.getKey().str());
   };
 
   cfg.setRemoveCallback(removeCb);
@@ -232,6 +232,7 @@ void generateAndInsert(LruAllocatorConfig& cfg,
     auto h = alloc->allocate(poolId, key, value.length());
     EXPECT_TRUE(h);
 
+    EXPECT_TRUE(h->getSize() >= value.length());
     std::memcpy(h->getWritableMemory(), value.c_str(), value.length());
 
     if (alloc->insert(h)) {
@@ -248,19 +249,18 @@ void generateAndInsert(LruAllocatorConfig& cfg,
   }
 
   for (auto it = removedData.begin(); it != removedData.end(); ++it) {
-    auto x = alloc->find((*it).item.getKey().str());
-    if ((*it).context == facebook::cachelib::RemoveContext::kEviction) {
-      if (x) {
-        ++itemsEvictedAndFound;
-      } else {
-        ++itemsEvicted;
-      }
+    auto x = alloc->find((*it));
+    if (x) {
+      ++itemsEvictedAndFound;
+    } else {
+      ++itemsEvicted;
     }
   }
 
   std::cout << "alloc.getCacheMemoryStats().cacheSize: " << numBytes << " (" << "cfg.getCacheSize(): " << cfg.getCacheSize() << ")";
   std::cout << "; Tiers: " << ((cfg.getMemoryTierConfigs().size() > 1)? "true" : "false");
   std::cout << "; Items inserted: " << itemsInserted;
+  std::cout << "; Items moved: " << movedKeys.size();
   std::cout << "; Items found: " << itemsFound;
   std::cout << "; Items evicted: " << itemsEvicted;
   std::cout << " (total items removed: " << removedData.size();
