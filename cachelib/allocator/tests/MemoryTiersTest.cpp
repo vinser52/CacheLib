@@ -195,7 +195,7 @@ void generateAndInsert(LruAllocatorConfig& cfg,
                        const size_t itemSize) {
   using Item = typename LruAllocator::Item;
   using RemoveCbData = typename LruAllocator::RemoveCbData;
-  size_t itemsInserted = 0, itemsFound = 0, itemsEvicted = 0;
+  size_t itemsInserted = 0, itemsFound = 0, itemsEvicted = 0, itemsEvictedAndFound = 0;
   std::set<std::string> movedKeys;
   std::vector<RemoveCbData> removedData;
   std::unique_ptr<LruAllocator> alloc;
@@ -249,8 +249,12 @@ void generateAndInsert(LruAllocatorConfig& cfg,
 
   for (auto it = removedData.begin(); it != removedData.end(); ++it) {
     auto x = alloc->find((*it).item.getKey().str());
-    if (x && ((*it).context == facebook::cachelib::RemoveContext::kEviction)) {
-      ++itemsEvicted;
+    if ((*it).context == facebook::cachelib::RemoveContext::kEviction) {
+      if (x) {
+        ++itemsEvictedAndFound;
+      } else {
+        ++itemsEvicted;
+      }
     }
   }
 
@@ -258,7 +262,9 @@ void generateAndInsert(LruAllocatorConfig& cfg,
   std::cout << "; Tiers: " << ((cfg.getMemoryTierConfigs().size() > 1)? "true" : "false");
   std::cout << "; Items inserted: " << itemsInserted;
   std::cout << "; Items found: " << itemsFound;
-  std::cout << "; Items evicted: " << itemsEvicted << " (total items removed: " << removedData.size() << ")"<< std::endl;
+  std::cout << "; Items evicted: " << itemsEvicted;
+  std::cout << " (total items removed: " << removedData.size();
+  std::cout << ", items evicted and found: " << itemsEvictedAndFound << ")"<< std::endl;
 }
 
 LruAllocatorConfig create2TierCacheConfig(size_t totalCacheSize) {
