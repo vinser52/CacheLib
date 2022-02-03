@@ -1286,6 +1286,8 @@ class CacheAllocator : public CacheBase {
   template <typename ItemPtr>
   ItemHandle moveRegularItemOnEviction(ItemPtr& oldItem, ItemHandle& newItemHdl);
 
+  ItemHandle moveRegularItemOnPromotion(ItemHandle& oldItemHdl, ItemHandle& newItemHdl);
+
   // Moves a regular item to a different slab. This should only be used during
   // slab release after the item's moving bit has been set. The user supplied
   // callback is responsible for copying the contents and fixing the semantics
@@ -1465,6 +1467,8 @@ class CacheAllocator : public CacheBase {
   //         handle to the item. On failure an empty handle.
   template <typename ItemPtr>
   ItemHandle tryEvictToNextMemoryTier(TierId tid, PoolId pid, ItemPtr& item);
+
+  ItemHandle tryPromoteToNextMemoryTier(ItemHandle& item);
 
   // Try to move the item down to the next memory tier
   //
@@ -1722,6 +1726,10 @@ class CacheAllocator : public CacheBase {
 
   static bool itemEvictionPredicate(const Item& item) {
     return item.getRefCount() == 0 && !item.isMoving();
+  }
+
+  static bool itemPromotionPredicate(const Item& item) {
+    return item.getRefCount() == 1 && !item.isMoving();
   }
 
   static bool itemExpiryPredicate(const Item& item) {

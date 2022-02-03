@@ -1281,6 +1281,107 @@ CacheAllocator<CacheTrait>::moveRegularItemOnEviction(
 }
 
 template <typename CacheTrait>
+typename CacheAllocator<CacheTrait>::ItemHandle
+CacheAllocator<CacheTrait>::moveRegularItemOnPromotion(
+    ItemHandle& oldItemHdl, ItemHandle& newItemHdl) {
+  // TODO: should we introduce new latency tracker. E.g. evictRegularLatency_
+  // ??? util::LatencyTracker tracker{stats_.evictRegularLatency_};
+
+  Item& oldItem = *oldItemHdl;
+  if (!oldItem.isAccessible() || oldItem.isExpired()) {
+    return std::move(oldItemHdl);
+  }
+
+  XDCHECK_EQ(newItemHdl->getSize(), oldItem.getSize());
+  XDCHECK_NE(getTierId(oldItem), getTierId(*newItemHdl));
+
+  // take care of the flags before we expose the item to be accessed. this
+  // will ensure that when another thread removes the item from RAM, we issue
+  // a delete accordingly. See D7859775 for an example
+  if (oldItem.isNvmClean()) {
+    newItemHdl->markNvmClean();
+  }
+
+  folly::StringPiece key(oldItem.getKey());
+  auto shard = getShardForKey(key);
+  auto& movesMap = getMoveMapForShard(shard);
+  MoveCtx* ctx(nullptr);
+  {
+    auto lock = getMoveLockForShard(shard);
+    auto res = movesMap.try_emplace(key, std::make_unique<MoveCtx>());
+    if (!res.second) {
+      return std::move(oldItemHdl);
+    }
+    ctx = res.first->second.get();
+  }
+
+  auto resHdl = ItemHandle{};
+  auto guard = folly::makeGuard([key, this, ctx, shard, &resHdl]() {
+    auto& movesMap = getMoveMapForShard(shard);
+    if (resHdl)
+      resHdl->unmarkIncomplete();
+    auto lock = getMoveLockForShard(shard);
+    ctx->setItemHandle(std::move(resHdl));
+    movesMap.erase(key);
+  });
+
+  // TODO: Possibly we can use markMoving() instead. But today
+  // moveOnSlabRelease logic assume that we mark as moving old Item
+  // and than do copy and replace old Item with the new one in access
+  // container. Furthermore, Item can be marked as Moving only
+  // if it is linked to MM container. In our case we mark the new Item
+  // and update access container before the new Item is ready (content is
+  // copied).
+  newItemHdl->markIncomplete();
+
+  // Inside the access container's lock, this checks if the old item is
+  // accessible and its refcount is zero. If the item is not accessible,
+  // there is no point to replace it since it had already been removed
+  // or in the process of being removed. If the item is in cache but the
+  // refcount is non-zero, it means user could be attempting to remove
+  // this item through an API such as remove(ItemHandle). In this case,
+  // it is unsafe to replace the old item with a new one, so we should
+  // also abort.
+  if (!accessContainer_->replaceIf(oldItem, *newItemHdl,
+                                   itemPromotionPredicate)) {
+    return std::move(oldItemHdl);
+  }
+
+  if (config_.moveCb) {
+    // Execute the move callback. We cannot make any guarantees about the
+    // consistency of the old item beyond this point, because the callback can
+    // do more than a simple memcpy() e.g. update external references. If there
+    // are any remaining handles to the old item, it is the caller's
+    // responsibility to invalidate them. The move can only fail after this
+    // statement if the old item has been removed or replaced, in which case it
+    // should be fine for it to be left in an inconsistent state.
+    config_.moveCb(oldItem, *newItemHdl, nullptr);
+  } else {
+    std::memcpy(newItemHdl->getWritableMemory(), oldItem.getMemory(),
+                oldItem.getSize());
+  }
+
+  // Inside the MM container's lock, this checks if the old item exists to
+  // make sure that no other thread removed it, and only then replaces it.
+  if (!replaceInMMContainer(oldItem, *newItemHdl)) {
+    accessContainer_->remove(*newItemHdl);
+    return std::move(oldItemHdl);
+  }
+
+  // Replacing into the MM container was successful, but someone could have
+  // called insertOrReplace() or remove() before or after the
+  // replaceInMMContainer() operation, which would invalidate newItemHdl.
+  if (!newItemHdl->isAccessible()) {
+    removeFromMMContainer(*newItemHdl);
+    return std::move(oldItemHdl);
+  }
+
+  newItemHdl.unmarkNascent();
+  resHdl = std::move(newItemHdl); // guard will assign it to ctx under lock
+  return resHdl.clone();
+}
+
+template <typename CacheTrait>
 bool CacheAllocator<CacheTrait>::moveRegularItem(Item& oldItem,
                                                  ItemHandle& newItemHdl) {
   XDCHECK(config_.moveCb);
@@ -1558,6 +1659,31 @@ CacheAllocator<CacheTrait>::tryEvictToNextMemoryTier(
   }
 
   return {};
+}
+
+template <typename CacheTrait>
+typename CacheAllocator<CacheTrait>::ItemHandle
+CacheAllocator<CacheTrait>::tryPromoteToNextMemoryTier(ItemHandle& item) {
+  auto tid = getTierId(*item);
+  auto pid = allocator_[tid]->getAllocInfo(item->getMemory()).poolId;
+
+  TierId nextTier = tid; // TODO - calculate this based on some admission policy
+  if (nextTier-- > 0) { // try to evict down to the next memory tiers
+    // allocateInternal might trigger another eviction
+    auto newItemHdl = allocateInternalTier(nextTier, pid,
+                     item->getKey(),
+                     item->getSize(),
+                     item->getCreationTime(),
+                     item->getExpiryTime());
+
+    if (newItemHdl) {
+      XDCHECK_EQ(newItemHdl->getSize(), item->getSize());
+
+      return moveRegularItemOnPromotion(item, newItemHdl);
+    }
+  }
+
+  return std::move(item);
 }
 
 template <typename CacheTrait>
@@ -1945,6 +2071,8 @@ typename CacheAllocator<CacheTrait>::ItemHandle
 CacheAllocator<CacheTrait>::findFastImpl(typename Item::Key key,
                                          AccessMode mode) {
   auto handle = findInternal(key);
+
+  handle = tryPromoteToNextMemoryTier(handle);
 
   stats_.numCacheGets.inc();
   if (UNLIKELY(!handle)) {
