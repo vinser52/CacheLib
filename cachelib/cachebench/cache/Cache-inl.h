@@ -283,6 +283,12 @@ Cache<Allocator>::Cache(const CacheConfig& config,
   }
 
   cleanupGuard.dismiss();
+#if 1
+  find_region = __itt_pt_region_create("Find_region");
+#else
+  domain = __itt_domain_create("MyTraces.MyDomain");
+  findTask = __itt_string_handle_create("find_task");
+#endif
 }
 
 template <typename Allocator>
@@ -455,6 +461,11 @@ typename Cache<Allocator>::ItemHandle Cache<Allocator>::find(Key key,
     if (FLAGS_report_api_latency) {
       tracker = util::LatencyTracker(cacheFindLatency_);
     }
+#if 1
+    __itt_mark_pt_region_begin(0);
+#else
+    __itt_task_begin(domain, __itt_null, __itt_null, findTask);
+#endif
     // find from cache and wait for the result to be ready.
     auto it = cache_->find(key, mode);
     it.wait();
@@ -463,7 +474,11 @@ typename Cache<Allocator>::ItemHandle Cache<Allocator>::find(Key key,
       XDCHECK(!consistencyCheckEnabled());
       validateValue(it);
     }
-
+#if 1
+    __itt_mark_pt_region_end(0);
+#else
+    __itt_task_end(domain);
+#endif
     return it;
   };
 

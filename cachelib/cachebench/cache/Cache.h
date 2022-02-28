@@ -32,6 +32,9 @@
 #include "cachelib/cachebench/consistency/ValueTracker.h"
 #include "cachelib/cachebench/util/CacheConfig.h"
 
+
+#include "/capacity_dir/vtune/include/ittnotify.h"
+
 DECLARE_bool(report_api_latency);
 
 namespace facebook {
@@ -378,6 +381,12 @@ class Cache {
 
   // number of times the item destructor was called in the cache, if enabled.
   std::atomic<int64_t> totalDestructor_{0};
+#if 1
+  __itt_pt_region find_region;
+#else
+  __itt_domain* domain;
+  __itt_string_handle* findTask;
+#endif
 };
 
 // Specializations are required for each MMType
