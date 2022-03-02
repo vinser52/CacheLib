@@ -52,15 +52,18 @@ struct MemoryTierConfig : public JSONConfig {
   }
 
   std::string file{""};
+  std::string devdax{""};
   size_t ratio{0};
   size_t size{0};
 
 private:
   MemoryTierCacheConfig memoryTierCacheConfigFromSource() {
-    if (file.empty()) {
-      return MemoryTierCacheConfig::fromShm();
-    } else {
+    if (!file.empty()) {
       return MemoryTierCacheConfig::fromFile(file);
+    } else if(!devdax.empty()) {
+      return MemoryTierCacheConfig::fromDaxDevice(devdax);
+    } else {
+      return MemoryTierCacheConfig::fromShm();
     }
   }
 };

@@ -229,6 +229,10 @@ bool removeSegByName(ShmTypeOpts typeOpts, const std::string& uniqueName) {
     return FileShmSegment::removeByPath(v->path);
   }
 
+  if (const auto* v = std::get_if<DaxShmSegmentOpts>(&typeOpts)) {
+    return DaxShmSegment::removeByPath(v->path);
+  }
+
   bool usePosix = std::get<PosixSysVSegmentOpts>(typeOpts).usePosix;
   if (usePosix) {
     return PosixShmSegment::removeByName(uniqueName);

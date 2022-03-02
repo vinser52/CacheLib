@@ -137,10 +137,17 @@ std::shared_ptr<RebalanceStrategy> CacheConfig::getRebalanceStrategy() const {
 
 MemoryTierConfig::MemoryTierConfig(const folly::dynamic& configJson) {
   JSONSetVal(configJson, file);
+  JSONSetVal(configJson, devdax);
   JSONSetVal(configJson, ratio);
   JSONSetVal(configJson, size);
 
-  checkCorrectSize<MemoryTierConfig, 48>();
+  if(!file.empty() && !devdax.empty()) {
+    throw std::invalid_argument(
+      "Tier cannot use simultaneously file-backed memory and device dax. "
+      "Only one option is possible per tier");
+  }
+
+  checkCorrectSize<MemoryTierConfig, 80>();
 }
 
 } // namespace cachebench

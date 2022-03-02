@@ -23,6 +23,7 @@
 
 #include "cachelib/common/Utils.h"
 #include "cachelib/shm/FileShmSegment.h"
+#include "cachelib/shm/DaxShmSegment.h"
 #include "cachelib/shm/PosixShmSegment.h"
 #include "cachelib/shm/ShmCommon.h"
 #include "cachelib/shm/SysVShmSegment.h"
@@ -55,6 +56,9 @@ class ShmSegment {
     if (auto *v = std::get_if<FileShmSegmentOpts>(&opts.typeOpts)) {
       segment_ = std::make_unique<FileShmSegment>(
         ShmNew, std::move(name), size, opts);
+    } else if (auto *v = std::get_if<DaxShmSegmentOpts>(&opts.typeOpts)) {
+      segment_ = std::make_unique<DaxShmSegment>(
+        ShmNew, std::move(name), size, opts);
     } else if (auto *v = std::get_if<PosixSysVSegmentOpts>(&opts.typeOpts)) {
       if (v->usePosix)
         segment_ = std::make_unique<PosixShmSegment>(
@@ -73,6 +77,9 @@ class ShmSegment {
              ShmSegmentOpts opts = {}) {
     if (std::get_if<FileShmSegmentOpts>(&opts.typeOpts)) {
       segment_ = std::make_unique<FileShmSegment>(
+        ShmAttach, std::move(name), opts);
+    } else if (std::get_if<DaxShmSegmentOpts>(&opts.typeOpts)) {
+      segment_ = std::make_unique<DaxShmSegment>(
         ShmAttach, std::move(name), opts);
     } else if (auto *v = std::get_if<PosixSysVSegmentOpts>(&opts.typeOpts)) {
       if (v->usePosix)

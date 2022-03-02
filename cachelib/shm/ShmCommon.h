@@ -82,12 +82,17 @@ struct FileShmSegmentOpts {
   std::string path;
 };
 
+struct DaxShmSegmentOpts {
+  DaxShmSegmentOpts(std::string path = ""): path(path) {}
+  std::string path;
+};
+
 struct PosixSysVSegmentOpts {
   PosixSysVSegmentOpts(bool usePosix = false): usePosix(usePosix) {}
   bool usePosix;
 };
 
-using ShmTypeOpts = std::variant<FileShmSegmentOpts, PosixSysVSegmentOpts>;
+using ShmTypeOpts = std::variant<FileShmSegmentOpts, DaxShmSegmentOpts, PosixSysVSegmentOpts>;
 
 struct ShmSegmentOpts {
   PageSizeT pageSize{PageSizeT::NORMAL};
@@ -98,9 +103,6 @@ struct ShmSegmentOpts {
 
   explicit ShmSegmentOpts(PageSizeT p) : pageSize(p) {}
   explicit ShmSegmentOpts(PageSizeT p, bool ro) : pageSize(p), readOnly(ro) {}
-  explicit ShmSegmentOpts(PageSizeT p, bool ro, const std::string& path) :
-                                       pageSize(p), readOnly(ro),
-                                       typeOpts(path) {}
   explicit ShmSegmentOpts(PageSizeT p, bool ro, bool posix) :
                                        pageSize(p), readOnly(ro),
                                        typeOpts(posix) {}

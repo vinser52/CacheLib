@@ -33,6 +33,14 @@ public:
     return config;
   }
 
+  // Creates instance of MemoryTierCacheConfig for file-backed memory.
+  // @param dax path to DAX device which CacheLib will use to map memory from.
+  static MemoryTierCacheConfig fromDaxDevice(const std::string& _dax) {
+    MemoryTierCacheConfig config;
+    config.shmOpts = DaxShmSegmentOpts(_dax);
+    return config;
+  }
+
   // Creates instance of MemoryTierCacheConfig for Posix/SysV Shared memory.
   static MemoryTierCacheConfig fromShm() {
     MemoryTierCacheConfig config;

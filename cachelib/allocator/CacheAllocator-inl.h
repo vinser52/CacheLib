@@ -48,8 +48,10 @@ CacheAllocator<CacheTrait>::CacheAllocator(Config config)
       moveLock_(kShards),
       cacheCreationTime_{util::getCurrentTimeSec()} {
 
-  if (numTiers_ > 1 || std::holds_alternative<FileShmSegmentOpts>(
-      memoryTierConfigs[0].getShmTypeOpts())) {
+  if (numTiers_ > 1 ||
+      std::holds_alternative<FileShmSegmentOpts>(memoryTierConfigs[0].getShmTypeOpts()) ||
+      std::holds_alternative<DaxShmSegmentOpts>(memoryTierConfigs[0].getShmTypeOpts())
+      ) {
     throw std::runtime_error(
       "Using custom memory tier or using more than one tier is only "
       "supported for Shared Memory.");
@@ -200,8 +202,13 @@ CacheAllocator<CacheTrait>::~CacheAllocator() {
 template <typename CacheTrait>
 ShmSegmentOpts CacheAllocator<CacheTrait>::createShmCacheOpts(TierId tid) {
   ShmSegmentOpts opts;
-  opts.alignment = sizeof(Slab);
   opts.typeOpts = memoryTierConfigs[tid].getShmTypeOpts();
+  if(std::holds_alternative<DaxShmSegmentOpts>(opts.typeOpts)) {
+      opts.alignment = 1024*1024*1024;
+      opts.pageSize = PageSizeT::ONE_GB;
+  } else {
+      opts.alignment = sizeof(Slab);
+  }
 
   return opts;
 }
