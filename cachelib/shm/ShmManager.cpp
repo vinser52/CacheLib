@@ -343,15 +343,7 @@ ShmAddr ShmManager::createShm(const std::string& shmName,
   }
 
   auto ret = newSeg->getCurrentMapping();
-  if (v) {
-    PosixSysVSegmentOpts opts;
-    opts.usePosix = v->usePosix;
-    nameToOpts_.emplace(shmName, opts);
-  } else {
-    FileShmSegmentOpts opts;
-    opts.path = newSeg->getKeyStr();
-    nameToOpts_.emplace(shmName, opts);
-  }
+  nameToOpts_.emplace(shmName, opts.typeOpts);
   segments_.emplace(shmName, std::move(newSeg));
   return ret;
 }
