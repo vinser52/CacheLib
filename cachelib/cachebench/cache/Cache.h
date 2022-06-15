@@ -113,7 +113,7 @@ class Cache {
   explicit Cache(const CacheConfig& config,
                  ChainedItemMovingSync movingSync = {},
                  std::string cacheDir = "",
-                 bool touchValue = false);
+                 bool touchValue = true);
 
   ~Cache();
 
@@ -428,7 +428,7 @@ class Cache {
   std::unique_ptr<ValueTracker> valueTracker_;
 
   // read entire value on find.
-  bool touchValue_{false};
+  bool touchValue_{true};
 
   // reading of the nand bytes written for the benchmark if enabled.
   const uint64_t nandBytesBegin_{0};
