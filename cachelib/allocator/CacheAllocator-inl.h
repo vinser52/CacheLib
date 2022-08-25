@@ -1193,7 +1193,7 @@ CacheAllocator<CacheTrait>::insertOrReplace(const WriteHandle& handle) {
 /* Next two methods are used to asynchronously move Item between memory tiers.
  *
  * The thread, which moves Item, allocates new Item in the tier we are moving to
- * and calls moveRegularItemOnEviction() method. This method does the following:
+ * and calls moveRegularItemWithSync() method. This method does the following:
  *  1. Create MoveCtx and put it to the movesMap.
  *  2. Update the access container with the new item from the tier we are
  *     moving to. This Item has kIncomplete flag set.
@@ -1222,9 +1222,10 @@ bool CacheAllocator<CacheTrait>::addWaitContextForMovingItem(
 }
 
 template <typename CacheTrait>
+template <typename P>
 typename CacheAllocator<CacheTrait>::WriteHandle
-CacheAllocator<CacheTrait>::moveRegularItemOnEviction(
-    Item& oldItem, WriteHandle& newItemHdl) {
+CacheAllocator<CacheTrait>::moveRegularItemWithSync(
+    Item& oldItem, WriteHandle& newItemHdl, P&& predicate) {
   XDCHECK(oldItem.isMoving());
   // TODO: should we introduce new latency tracker. E.g. evictRegularLatency_
   // ??? util::LatencyTracker tracker{stats_.evictRegularLatency_};
@@ -1284,7 +1285,7 @@ CacheAllocator<CacheTrait>::moveRegularItemOnEviction(
   // it is unsafe to replace the old item with a new one, so we should
   // also abort.
   if (!accessContainer_->replaceIf(oldItem, *newItemHdl,
-                                   itemMovingPredicate)) {
+                                   predicate)) {
     return {};
   }
 
@@ -1652,13 +1653,13 @@ CacheAllocator<CacheTrait>::tryEvictToNextMemoryTier(
 
     if (newItemHdl) {
       XDCHECK_EQ(newItemHdl->getSize(), item.getSize());
-
-      return moveRegularItemOnEviction(item, newItemHdl);
+      return moveRegularItemWithSync(item, newItemHdl, itemMovingPredicate);
     }
   }
 
   return {};
 }
+
 
 template <typename CacheTrait>
 typename CacheAllocator<CacheTrait>::WriteHandle
