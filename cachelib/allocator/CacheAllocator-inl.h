@@ -223,14 +223,15 @@ size_t CacheAllocator<CacheTrait>::memoryTierSize(TierId tid) const
 template <typename CacheTrait>
 std::unique_ptr<MemoryAllocator>
 CacheAllocator<CacheTrait>::createNewMemoryAllocator(TierId tid) {
+  size_t tierSize = memoryTierSize(tid);
   return std::make_unique<MemoryAllocator>(
       getAllocatorConfig(config_),
       shmManager_
           ->createShm(detail::kShmCacheName + std::to_string(tid),
-                      config_.getCacheSize(), config_.slabMemoryBaseAddr,
+                      tierSize, config_.slabMemoryBaseAddr,
                       createShmCacheOpts(tid))
           .addr,
-          memoryTierSize(tid)
+          tierSize
       );
 }
 
