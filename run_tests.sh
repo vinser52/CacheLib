@@ -1,12 +1,8 @@
 #!/bin/bash
 
 # Newline separated list of tests to ignore
-BLACKLIST="allocator-test-AllocationClassTest
-allocator-test-AllocatorTypeTest
-allocator-test-NvmCacheTests
+BLACKLIST="allocator-test-AllocatorTypeTest
 allocator-test-NavySetupTest
-common-test-TimeTests
-common-test-UtilTests
 shm-test-test_page_size"
 
 if [ "$1" == "long" ]; then
