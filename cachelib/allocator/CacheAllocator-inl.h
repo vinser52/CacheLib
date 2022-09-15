@@ -1641,7 +1641,13 @@ typename CacheAllocator<CacheTrait>::WriteHandle
 CacheAllocator<CacheTrait>::tryEvictToNextMemoryTier(
     TierId tid, PoolId pid, Item& item) {
   if(item.isChainedItem()) return {}; // TODO: We do not support ChainedItem yet
-  if(item.isExpired()) return acquire(&item);
+  if(item.isExpired()) {
+    auto handle = removeIf(item, [](const Item& it) {
+                                    return it.getRefCount() == 0;
+                                  });
+
+    if (handle) { return handle; }
+  }
 
   TierId nextTier = tid; // TODO - calculate this based on some admission policy
   while (++nextTier < getNumTiers()) { // try to evict down to the next memory tiers
@@ -3067,16 +3073,12 @@ CacheAllocator<CacheTrait>::evictNormalItem(Item& item,
   // We remove the item from both access and mm containers. It doesn't matter
   // if someone else calls remove on the item at this moment, the item cannot
   // be freed as long as we have the moving bit set.
-  auto handle = accessContainer_->removeIf(item, std::move(predicate));
-
+  auto handle = removeIf(item, std::move(predicate));
   if (!handle) {
     return handle;
   }
 
-  XDCHECK_EQ(reinterpret_cast<uintptr_t>(handle.get()),
-             reinterpret_cast<uintptr_t>(&item));
   XDCHECK_EQ(1u, handle->getRefCount());
-  removeFromMMContainer(item);
 
   // now that we are the only handle and we actually removed something from
   // the RAM cache, we enqueue it to nvmcache.
@@ -3189,6 +3191,21 @@ CacheAllocator<CacheTrait>::evictChainedItemForSlabRelease(ChainedItem& child) {
 }
 
 template <typename CacheTrait>
+template <typename Fn>
+typename CacheAllocator<CacheTrait>::WriteHandle
+CacheAllocator<CacheTrait>::removeIf(Item& item, Fn&& predicate) {
+  auto handle = accessContainer_->removeIf(item, std::forward<Fn>(predicate));
+
+  if (handle) {
+    XDCHECK_EQ(reinterpret_cast<uintptr_t>(handle.get()),
+             reinterpret_cast<uintptr_t>(&item));
+    removeFromMMContainer(item);
+  }
+
+  return handle;
+}
+
+template <typename CacheTrait>
 bool CacheAllocator<CacheTrait>::removeIfExpired(const ReadHandle& handle) {
   if (!handle) {
     return false;
@@ -3196,14 +3213,7 @@ bool CacheAllocator<CacheTrait>::removeIfExpired(const ReadHandle& handle) {
 
   // We remove the item from both access and mm containers.
   // We want to make sure the caller is the only one holding the handle.
-  auto removedHandle =
-      accessContainer_->removeIf(*(handle.getInternal()), itemExpiryPredicate);
-  if (removedHandle) {
-    removeFromMMContainer(*(handle.getInternal()));
-    return true;
-  }
-
-  return false;
+  return (bool)removeIf(*(handle.getInternal()), itemExpiryPredicate);
 }
 
 template <typename CacheTrait>

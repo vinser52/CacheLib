@@ -1806,6 +1806,12 @@ class CacheAllocator : public CacheBase {
   // handle on failure. caller can retry.
   WriteHandle evictChainedItemForSlabRelease(ChainedItem& item);
 
+  // Helper function to remove a item if predicates is true.
+  //
+  // @return last handle to the item on success. empty handle on failure.
+  template <typename Fn>
+  WriteHandle removeIf(Item& item, Fn&& predicate);
+
   // Helper function to remove a item if expired.
   //
   // @return true if it item expire and removed successfully.
