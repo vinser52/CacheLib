@@ -98,6 +98,8 @@ Cache<Allocator>::Cache(const CacheConfig& config,
     allocatorConfig_.usePosixForShm();
   }
 
+  allocatorConfig_.setMemoryLocking(config_.lockMemory);
+
   if (!config_.memoryTierConfigs.empty()) {
     allocatorConfig_.configureMemoryTiers(config_.memoryTierConfigs);
   }
