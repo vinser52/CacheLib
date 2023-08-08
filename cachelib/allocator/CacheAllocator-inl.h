@@ -2625,53 +2625,37 @@ bool CacheAllocator<CacheTrait>::moveForSlabRelease(
   Item *parentItem;
   bool chainedItem = oldItem.isChainedItem();
 
-  for (unsigned int itemMovingAttempts = 0;
-       itemMovingAttempts < config_.movingTries;
-       ++itemMovingAttempts) {
-    stats_.numMoveAttempts.inc();
+  stats_.numMoveAttempts.inc();
 
-    // Nothing to move - in the case that tryMoving failed
-    // for chained items we would have already evicted the entire chain.
-    if (oldItem.isOnlyMoving()) {
-      XDCHECK(!oldItem.isChainedItem());
-      auto ret = unmarkMovingAndWakeUpWaiters(oldItem, {});
-      XDCHECK(ret == 0);
-      const auto res =
-          releaseBackToAllocator(oldItem, RemoveContext::kNormal, false);
-      XDCHECK(res == ReleaseRes::kReleased);
-      return true;
-    }
+  // Nothing to move - in the case that tryMoving failed
+  // for chained items we would have already evicted the entire chain.
+  if (oldItem.isOnlyMoving()) {
+    XDCHECK(!oldItem.isChainedItem());
+    auto ret = unmarkMovingAndWakeUpWaiters(oldItem, {});
+    XDCHECK(ret == 0);
+    const auto res =
+        releaseBackToAllocator(oldItem, RemoveContext::kNormal, false);
+    XDCHECK(res == ReleaseRes::kReleased);
+    return true;
+  }
 
-    if (!newItemHdl) {
-      // try to allocate again if it previously wasn't successful
-      if (chainedItem) {
-        parentItem = &oldItem.asChainedItem().getParentItem(compressor_);
-        XDCHECK(parentItem->isMoving());
-        XDCHECK(oldItem.isChainedItem() && oldItem.getRefCount() == 1);
-        XDCHECK_EQ(0, parentItem->getRefCount());
-        newItemHdl =
-            allocateChainedItemInternal(*parentItem, oldItem.getSize());
-      } else {
-        XDCHECK(oldItem.isMoving());
-        newItemHdl = allocateNewItemForOldItem(oldItem);
-      }
-    }
+  // try to allocate again if it previously wasn't successful
+  if (chainedItem) {
+    parentItem = &oldItem.asChainedItem().getParentItem(compressor_);
+    XDCHECK(parentItem->isMoving());
+    XDCHECK(oldItem.isChainedItem() && oldItem.getRefCount() == 1);
+    XDCHECK_EQ(0, parentItem->getRefCount());
+    newItemHdl =
+        allocateChainedItemInternal(*parentItem, oldItem.getSize());
+  } else {
+    XDCHECK(oldItem.isMoving());
+    newItemHdl = allocateNewItemForOldItem(oldItem);
+  }
+  
 
-    // if we have a valid handle, try to move, if not, we retry.
-    if (newItemHdl) {
-      isMoved = tryMovingForSlabRelease(oldItem, newItemHdl);
-      if (isMoved) {
-        break;
-      }
-    }
-
-    throttleWith(throttler, [&] {
-      XLOGF(WARN,
-            "Spent {} seconds, slab release still trying to move Item: {}. "
-            "Pool: {}, Class: {}.",
-            util::getCurrentTimeSec() - startTime, oldItem.toString(),
-            ctx.getPoolId(), ctx.getClassId());
-    });
+  // if we have a valid handle, try to move, if not, we retry.
+  if (newItemHdl) {
+    isMoved = tryMovingForSlabRelease(oldItem, newItemHdl);
   }
 
   // Return false if we've exhausted moving tries.
@@ -2679,20 +2663,6 @@ bool CacheAllocator<CacheTrait>::moveForSlabRelease(
     return false;
   }
 
-  // Since item has been moved, we can directly free it. We don't need to
-  // worry about any stats related changes, because there is another item
-  // that's identical to this one to replace it. Here we just need to wait
-  // until all users have dropped the item handles before we can proceed.
-  startTime = util::getCurrentTimeSec();
-  while (!chainedItem && !oldItem.isOnlyMoving()) {
-    throttleWith(throttler, [&] {
-      XLOGF(WARN,
-            "Spent {} seconds, slab release still waiting for refcount to "
-            "drain Item: {}. Pool: {}, Class: {}.",
-            util::getCurrentTimeSec() - startTime, oldItem.toString(),
-            ctx.getPoolId(), ctx.getClassId());
-    });
-  }
   const auto allocInfo = allocator_->getAllocInfo(oldItem.getMemory());
   if (chainedItem) {
     newItemHdl.reset();
@@ -2800,30 +2770,6 @@ CacheAllocator<CacheTrait>::allocateNewItemForOldItem(const Item& oldItem) {
 template <typename CacheTrait>
 bool CacheAllocator<CacheTrait>::tryMovingForSlabRelease(
     Item& oldItem, WriteHandle& newItemHdl) {
-  // By holding onto a user-level synchronization object, we ensure moving
-  // a regular item or chained item is synchronized with any potential
-  // user-side mutation.
-  std::unique_ptr<SyncObj> syncObj;
-  if (config_.movingSync) {
-    if (!oldItem.isChainedItem()) {
-      syncObj = config_.movingSync(oldItem.getKey());
-    } else {
-      // Copy the key so we have a valid key to work with if the chained
-      // item is still valid.
-      const std::string parentKey =
-          oldItem.asChainedItem().getParentItem(compressor_).getKey().str();
-      syncObj = config_.movingSync(parentKey);
-    }
-
-    // We need to differentiate between the following three scenarios:
-    // 1. nullptr indicates no move sync required for this particular item
-    // 2. moveSync.isValid() == true meaning we've obtained the sync
-    // 3. moveSync.isValid() == false meaning we need to abort and retry
-    if (syncObj && !syncObj->isValid()) {
-      return false;
-    }
-  }
-
   //move can fail if another thread calls insertOrReplace
   //in this case oldItem is no longer valid (not accessible,
   //it gets removed from MMContainer and evictForSlabRelease
