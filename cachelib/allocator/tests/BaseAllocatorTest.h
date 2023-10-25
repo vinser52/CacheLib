@@ -19,6 +19,14 @@
 #include <folly/Random.h>
 #include <folly/Singleton.h>
 #include <folly/synchronization/Baton.h>
+#include <folly/synchronization/Latch.h>
+
+#include <fcntl.h>
+#include <unistd.h>
+#include <ctype.h>
+#include <semaphore.h>
+#include <sched.h>
+#include <pthread.h>
 
 #include <algorithm>
 #include <chrono>
@@ -5189,6 +5197,128 @@ class BaseAllocatorTest : public AllocatorTest<AllocatorT> {
     }
   }
 
+  // helper function to check if gdb is running and attached to test
+  bool isGdbAttached() {
+    char buf[4096];
+    const int status_fd = open("/proc/self/status", O_RDONLY);
+    if (status_fd == -1) {
+      return false;
+    }
+    const ssize_t num_read = read(status_fd, buf, sizeof(buf) - 1);
+    close(status_fd);
+  
+    if (num_read <= 0) {
+      return false;
+    }
+    buf[num_read] = '\0';
+    constexpr char tracerPidString[] = "TracerPid:";
+    const auto tracer_pid_ptr = strstr(buf, tracerPidString);
+    if (!tracer_pid_ptr) {
+      return false;
+    }
+    for (const char* characterPtr = tracer_pid_ptr + sizeof(tracerPidString) - 1; 
+            characterPtr <= buf + num_read; ++characterPtr) {
+      if (isspace(*characterPtr)) {
+        continue;
+      } else {
+        return isdigit(*characterPtr) != 0 && *characterPtr != '0';
+      }
+    }
+    return false;
+  }
+  
+  void testChainedItemParentAcquireAfterMoveLoop() {
+    
+    // create an allocator worth 4 slabs 
+    // first slab is for overhead, second is parent class
+    // thrid is chained item 1 and fourth is for new chained item alloc
+    // to move to.
+    std::unique_ptr<AllocatorT> alloc;
+    typename AllocatorT::Config config;
+    config.configureChainedItems();
+    config.setCacheSize(200 * Slab::kSize);
+    
+    const std::set<uint32_t> allocSizes = {1024 , 2048};
+    auto sizes = std::vector<uint32_t>{500, 1500};
+
+    std::atomic<uint64_t> numRemovedKeys{0};
+    config.setRemoveCallback(
+        [&](const typename AllocatorT::RemoveCbData&) { ++numRemovedKeys; });
+
+    std::atomic<uint64_t> numMoves{0};
+    std::atomic<uint64_t> numReplaces{0};
+
+    
+    using Item = typename AllocatorT::Item;
+
+    std::vector<std::unique_ptr<std::thread>> mvThreads;
+    PoolId pid;
+    config.enableMovingOnSlabRelease(
+        [&](Item& oldItem, Item& newItem, Item* parentPtr) {
+          assert(oldItem.getSize() == newItem.getSize());
+          assert(oldItem.isChainedItem());
+          std::memcpy(newItem.getMemory(), oldItem.getMemory(),
+                      oldItem.getSize());
+          folly::Latch latch(1);
+          mvThreads.push_back(std::make_unique<std::thread>([&](){
+            auto parentReplacement = alloc->allocate(pid,parentPtr->getKey(),sizes[0]);
+            Item *parentCopy = parentPtr;
+            latch.count_down();
+            while (parentCopy->isMoving());
+            alloc->insertOrReplace(parentReplacement);
+            ++numReplaces;
+          }));
+          latch.wait();
+          ++numMoves;
+        }
+    );
+
+    alloc = std::make_unique<AllocatorT>(config);
+    
+    const size_t numBytes = alloc->getCacheMemoryStats().ramCacheSize;
+    const auto poolSize = numBytes;
+    pid = alloc->addPool("one", poolSize, allocSizes);
+    
+    // Allocate 1 parent items and for each parent item, 1 chained
+    // allocation
+    auto allocFn = [&](std::string keyPrefix, std::vector<uint32_t> sizes) {
+      for (unsigned int loop = 0; loop < 20; ++loop) {
+        std::vector<uint8_t*> bufList;
+        std::vector<typename AllocatorT::WriteHandle> parentHandles;
+        for (unsigned int i = 0; i < 2048; ++i) {
+          const auto key = keyPrefix + folly::to<std::string>(loop) + "_" +
+                           folly::to<std::string>(i);
+
+          auto itemHandle = util::allocateAccessible(*alloc, pid, key, sizes[0]);
+
+          for (unsigned int j = 0; j < 1; ++j) {
+            auto childItem =
+                alloc->allocateChainedItem(itemHandle, sizes[1]);
+            ASSERT_NE(nullptr, childItem);
+
+            uint8_t* buf = reinterpret_cast<uint8_t*>(childItem->getMemory());
+            // write first 50 bytes here
+            for (uint8_t k = 0; k < 50; ++k) {
+              buf[k] = k;
+            }
+            bufList.push_back(buf);
+
+            alloc->addChainedItem(itemHandle, std::move(childItem));
+          }
+        }
+      }
+    };
+    allocFn(std::string{"yolo"}, sizes);
+
+    ClassId cid = static_cast<ClassId>(1);
+    for (int i = 0; i < 10; i++) {
+      alloc->releaseSlab(pid, cid, SlabReleaseMode::kRebalance);
+    }
+    for (int i = 0; i < mvThreads.size(); i++) {
+        mvThreads[i]->join();
+    }
+    std::cout << numMoves << "," << numReplaces << std::endl;
+  }
   // Test stats on counting chained items
   // 1. Alloc an item and several chained items
   //    * Before inserting chained items, make sure count is zero
