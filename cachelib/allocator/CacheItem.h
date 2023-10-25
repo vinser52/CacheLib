@@ -380,6 +380,7 @@ class CACHELIB_PACKED_ATTR CacheItem {
    */
   bool markMoving();
   RefcountWithFlags::Value unmarkMoving() noexcept;
+  RefcountWithFlags::Value unmarkMovingAndIncRef() noexcept;
   bool isMoving() const noexcept;
   bool isOnlyMoving() const noexcept;
 

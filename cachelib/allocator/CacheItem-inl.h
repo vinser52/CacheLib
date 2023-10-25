@@ -248,6 +248,11 @@ RefcountWithFlags::Value CacheItem<CacheTrait>::unmarkMoving() noexcept {
 }
 
 template <typename CacheTrait>
+RefcountWithFlags::Value CacheItem<CacheTrait>::unmarkMovingAndIncRef() noexcept {
+  return ref_.unmarkMovingAndIncRef();
+}
+
+template <typename CacheTrait>
 bool CacheItem<CacheTrait>::isMoving() const noexcept {
   return ref_.isMoving();
 }

@@ -2639,20 +2639,12 @@ bool CacheAllocator<CacheTrait>::moveForSlabRelease(
   const auto allocInfo = allocator_->getAllocInfo(oldItem.getMemory());
   if (chainedItem) {
     newItemHdl.reset();
-    auto ref = parentItem->unmarkMoving();
-    if (UNLIKELY(ref == 0)) {
-      wakeUpWaiters(*parentItem, {});
-      const auto res =
-          releaseBackToAllocator(*parentItem, RemoveContext::kNormal, false);
-      XDCHECK(res == ReleaseRes::kReleased);
-      return true;
-    } else {
-      XDCHECK_NE(ref, 0);
-      auto parentHdl = acquire(parentItem);
-      if (parentHdl) {
-        wakeUpWaiters(*parentItem, std::move(parentHdl));
-      }
-    }
+    auto ref = parentItem->unmarkMovingAndIncRef();
+    XDCHECK_NE(ref, 0);
+    auto parentHdl = acquire(parentItem);
+    XDCHECK(parentHdl);
+    parentHdl->decRef();
+    wakeUpWaiters(*parentItem, std::move(parentHdl));
   } else {
     auto ref = unmarkMovingAndWakeUpWaiters(oldItem, std::move(newItemHdl));
     XDCHECK(ref == 0);

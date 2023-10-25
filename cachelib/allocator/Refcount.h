@@ -379,6 +379,35 @@ class FOLLY_PACK_ATTR RefcountWithFlags {
 
     return retValue & kRefMask;
   }
+ 
+  /*
+   * this is used when we immediately call acquire after unmarking
+   * moving - this is currently done in the case of moving a
+   * chained item when the parent is unmarked moving and we
+   * need to wake up the waiters with the parent handle BUT
+   * we don't want the parent item to be marked moving/exclusive 
+   * between unmarking moving and acquire - so we do not
+   * modify the refcount (moving state = exclusive bit set and refcount == 1)
+   */
+  Value unmarkMovingAndIncRef() noexcept {
+    XDCHECK(isMoving());
+    auto predicate = [](const Value curValue) {
+      XDCHECK((curValue & kAccessRefMask) != 0);
+      return true;
+    };
+
+    Value retValue;
+    auto newValue = [&retValue](const Value curValue) {
+      retValue =
+          (curValue) & ~getAdminRef<kExclusive>();
+      return retValue;
+    };
+
+    auto updated = atomicUpdateValue(predicate, newValue);
+    XDCHECK(updated);
+
+    return retValue & kRefMask;
+  }
 
   bool isMoving() const noexcept {
     auto raw = getRaw();
