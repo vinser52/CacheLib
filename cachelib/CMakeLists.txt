@@ -396,4 +396,10 @@ if (BUILD_TESTS)
     RENAME
       Makefile
   )
+  install(
+    FILES
+      ${CACHELIB_HOME}/allocator/tests/ChainedItemParentAcquireAfterMove.gdb
+    DESTINATION
+      ${TESTS_INSTALL_DIR}
+  )
 endif()
