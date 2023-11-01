@@ -2639,6 +2639,7 @@ bool CacheAllocator<CacheTrait>::moveForSlabRelease(
   const auto allocInfo = allocator_->getAllocInfo(oldItem.getMemory());
   if (chainedItem) {
     newItemHdl.reset();
+    auto pkey = parentItem->getKey();
     auto ref = parentItem->unmarkMoving();
     if (UNLIKELY(ref == 0)) {
       wakeUpWaiters(*parentItem, {});
@@ -2650,6 +2651,12 @@ bool CacheAllocator<CacheTrait>::moveForSlabRelease(
       XDCHECK_NE(ref, 0);
       auto parentHdl = acquire(parentItem);
       if (parentHdl) {
+        XDCHECK_EQ(pkey,parentHdl->getKey());
+        if (pkey != parentHdl->getKey()) {
+          throw std::runtime_error(
+            folly::sformat("Expected key {}. But got {}.",
+                            pkey, parentHdl->getKey()));
+        }
         wakeUpWaiters(*parentItem, std::move(parentHdl));
       }
     }
