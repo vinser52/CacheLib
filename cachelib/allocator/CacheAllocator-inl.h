@@ -2649,7 +2649,7 @@ bool CacheAllocator<CacheTrait>::moveForSlabRelease(
       return true;
     } else {
       XDCHECK_NE(ref, 0);
-      auto parentHdl = acquire(parentItem);
+      auto parentHdl = findInternal(pkey);
       if (parentHdl) {
         XDCHECK_EQ(pkey,parentHdl->getKey());
         if (pkey != parentHdl->getKey()) {
